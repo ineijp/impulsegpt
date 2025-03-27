@@ -1,2 +1,4 @@
 .env
 tester.ipynb
+.venv
+data
