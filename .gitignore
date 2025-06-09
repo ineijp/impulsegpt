@@ -2,8 +2,8 @@
 .DS_Store
 tester.ipynb
 .venv
+.ipynb_checkpoints/
 data
 train_data
 __pycache__/impulsegpt.cpython-310.pyc
 __pycache__/model.cpython-310.pyc
-.ipynb_checkpoints
