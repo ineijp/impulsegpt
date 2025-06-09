@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from dataclasses import dataclass
+import math
 
 @dataclass
 class Config:
@@ -12,36 +13,60 @@ class Config:
     n_layers: int = 12
     batchFirst: bool = True
     dtype: torch.dtype = torch.float32
-
-class RotaryPositionalEmbedding(nn.Module):
-    def __init__(self, d_model, max_seq_len):
-        super(RotaryPositionalEmbedding, self).__init__()
-        self.d_model = d_model
-        self.max_seq_len = max_seq_len
-
-        # Precompute sinusoidal embeddings
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, d_model, 2).float() / d_model))
-        self.register_buffer("sinusoidal", torch.einsum("i,j->ij", torch.arange(max_seq_len).float(), inv_freq))
-        self.register_buffer("sin", torch.sin(self.sinusoidal))
-        self.register_buffer("cos", torch.cos(self.sinusoidal))
-
-    def forward(self, x):
-        """
-        Args:
-            x: A tensor of shape (length, batch, d_model).
-
-        Returns:
-            A tensor of shape (length, batch, d_model) with rotary positional embeddings applied.
-        """
-        length, batch, d_model = x.shape
-        assert d_model == self.d_model, "Input d_model must match initialized d_model"
-
-        # Apply rotary embeddings
-        x1, x2 = x[..., ::2], x[..., 1::2]  # Split into even and odd dimensions
-        x_rotated = torch.cat([x1 * self.cos[:length, None, :] - x2 * self.sin[:length, None, :],
-                               x1 * self.sin[:length, None, :] + x2 * self.cos[:length, None, :]], dim=-1)
-        return x_rotated
     
+
+class RoPE(nn.Module):
+    def __init__(self, dim: int, max_seq_len: int = 1024):
+        """
+        Rotary Positional Embedding.
+        Args:
+            dim: Dimension of the model (must be even)
+            max_seq_len: Maximum sequence length
+        """
+        super().__init__()
+        assert dim % 2 == 0, "Dimension must be divisible by 2"
+        
+        # Create position indices
+        position = torch.arange(max_seq_len).unsqueeze(1)  # [seq_len, 1]
+        
+        # Create dimension indices
+        div_term = torch.exp(
+            torch.arange(0, dim, 2) * (-math.log(10000.0) / dim)
+        )  # [dim/2]
+        
+        # Compute rotation matrices
+        pos_emb = position * div_term  # [seq_len, dim/2]
+        
+        # Cache sin and cos values
+        self.register_buffer('cos', torch.cos(pos_emb))  # [seq_len, dim/2]
+        self.register_buffer('sin', torch.sin(pos_emb))  # [seq_len, dim/2]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply rotary embeddings to input tensor.
+        Args:
+            x: Input tensor of shape (batch, seq_len, dim)
+        Returns:
+            Tensor of shape (batch, seq_len, dim) with rotary embeddings applied
+        """
+        batch, seq_len, dim = x.shape
+        x_reshape = x.view(batch, seq_len, -1, 2)  # [batch, seq_len, dim/2, 2]
+        
+        # Get pairs of consecutive features
+        x1 = x_reshape[..., 0]  # [batch, seq_len, dim/2]
+        x2 = x_reshape[..., 1]  # [batch, seq_len, dim/2]
+        
+        # Apply rotation using broadcasting
+        cos = self.cos[:seq_len, :]  # [seq_len, dim/2]
+        sin = self.sin[:seq_len, :]  # [seq_len, dim/2]
+        
+        # Rotate the features
+        x1_rot = x1 * cos - x2 * sin  # [batch, seq_len, dim/2]
+        x2_rot = x1 * sin + x2 * cos  # [batch, seq_len, dim/2]
+        
+        # Stack and reshape back
+        output = torch.stack([x1_rot, x2_rot], dim=-1)  # [batch, seq_len, dim/2, 2]
+        return output.view(batch, seq_len, dim)  # [batch, seq_len, dim]
 
 class Layer(nn.Module):
     def __init__(self, d_model, n_heads, ctx_len):
@@ -49,7 +74,7 @@ class Layer(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
-        self.rope = RotaryPositionalEmbedding(d_model, max_seq_len = ctx_len)
+        self.rope = RoPE(dim=d_model, max_seq_len=ctx_len)
         self.wq = nn.Linear(d_model, d_model, bias=False)
         self.wk = nn.Linear(d_model, d_model, bias=False)
         self.wv = nn.Linear(d_model, d_model, bias=False)
@@ -136,7 +161,7 @@ class ImpulseGPT(nn.Module):
         x = self.fc(x[:,-1,:])
         return x
     
-    def generate(self, x, max_length):
+    def generate(self, x, max_length, top_k):
         # Ensure the model is in evaluation mode
         self.eval()
 
@@ -144,9 +169,16 @@ class ImpulseGPT(nn.Module):
         output = x
 
         # Generate tokens one by one
-        for _ in range(max_length):
-            logits = self.forward(output)
-            next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-            output = torch.cat([output, next_token], dim=1)
+        with torch.no_grad():
+            for _ in range(max_length):
+                logits = self.forward(output)
+                v, _ = torch.topk(logits, top_k, dim=-1)
+                logits[logits < v[:,[-1]]] = -float('Inf')
+                print(logits)
+                probs = F.softmax(logits, dim=-1)
+                #print(f"The probs is: {probs}")
+                next_token = torch.multinomial(probs, num_samples=1)
+                #print(f"Token should be: {next_token}")
+                output = torch.cat([output, next_token], dim=1)
 
         return output
