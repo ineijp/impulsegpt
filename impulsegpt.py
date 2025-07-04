@@ -11,6 +11,8 @@ class Config:
     ctx_len: int = 1024
     n_heads: int = 12
     n_layers: int = 12
+    attn_drop: float = 0.1
+    res_drop: float = 0.1
     batchFirst: bool = True
     dtype: torch.dtype = torch.float32
     
@@ -69,7 +71,7 @@ class RoPE(nn.Module):
         return output.view(batch, seq_len, dim)  # [batch, seq_len, dim]
 
 class Layer(nn.Module):
-    def __init__(self, d_model, n_heads, ctx_len):
+    def __init__(self, d_model, n_heads, ctx_len, attn_dropout, res_dropout):
         super().__init__()
         self.d_model = d_model
         self.n_heads = n_heads
@@ -78,12 +80,14 @@ class Layer(nn.Module):
         self.wq = nn.Linear(d_model, d_model, bias=False)
         self.wk = nn.Linear(d_model, d_model, bias=False)
         self.wv = nn.Linear(d_model, d_model, bias=False)
-        #self.wo = nn.Linear(d_model, d_model)
+        self.wo = nn.Linear(d_model, d_model)
         self.ff = nn.Sequential(
             nn.Linear(d_model, 4 * d_model),
             nn.GELU(),
             nn.Linear(4 * d_model, d_model)
         )
+        self.attn_dropout = nn.Dropout(attn_dropout)
+        self.res_dropout = nn.Dropout(res_dropout)
 
     def forward(self, x, i):
         # rope only applies to q and k, not v
@@ -113,7 +117,7 @@ class Layer(nn.Module):
         mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device)).view(1, 1, seq_len, seq_len)
         attn = attn.masked_fill(mask == 0, float('-inf'))
         attn = F.softmax(attn, dim=-1)
-
+        attn = self.attn_dropout(attn)
         # debugging print
         # if i == 0:
         #     print(f"Printing the attention map of layer {i+1}")
@@ -126,12 +130,12 @@ class Layer(nn.Module):
         out = attn @ v
         # print(f"Shape of out in layer {i+1} before permute: {out.shape}")
         out = out.permute(0, 2, 1, 3).reshape(x.shape[0], x.shape[1], self.d_model)
-        # out = self.wo(out)
-        out = out + x # residual connection bypassing the attention
+        out = self.wo(out)
+        out = out + self.res_dropout(x) # residual connection bypassing the attention
         out = F.layer_norm(out, out.shape[2:])
         
         out2 = self.ff(out)
-        out2 = out2 + out # residual connection bypassing the feedforward
+        out2 = out2 + self.res_dropout(out) # residual connection bypassing the feedforward
         out2 = F.layer_norm(out2, out2.shape[2:])
         return out2
         
@@ -144,8 +148,14 @@ class ImpulseGPT(nn.Module):
         self.ctx_len = config.ctx_len
         self.n_heads = config.n_heads
         self.n_layers = config.n_layers
+        self.attn_drop = config.attn_drop
+        self.res_drop = config.res_drop
         self.embedding = nn.Embedding(self.vocab, self.d_model)
-        self.layers = nn.ModuleList([Layer(self.d_model, self.n_heads, self.ctx_len) for _ in range(self.n_layers)])
+        self.layers = nn.ModuleList([Layer(self.d_model, 
+                                           self.n_heads, 
+                                           self.ctx_len, 
+                                           self.attn_drop, 
+                                           self.res_drop) for _ in range(self.n_layers)])
         self.fc = nn.Linear(self.d_model, self.vocab)
  
     def forward(self, x):
@@ -161,7 +171,7 @@ class ImpulseGPT(nn.Module):
         x = self.fc(x[:,-1,:])
         return x
     
-    def generate(self, x, max_length, top_k):
+    def generate(self, x, max_length, top_k=50, temp=1):
         # Ensure the model is in evaluation mode
         self.eval()
 
@@ -171,10 +181,10 @@ class ImpulseGPT(nn.Module):
         # Generate tokens one by one
         with torch.no_grad():
             for _ in range(max_length):
-                logits = self.forward(output)
+                logits = self.forward(output) / temp
                 v, _ = torch.topk(logits, top_k, dim=-1)
                 logits[logits < v[:,[-1]]] = -float('Inf')
-                print(logits)
+                #print(logits)
                 probs = F.softmax(logits, dim=-1)
                 #print(f"The probs is: {probs}")
                 next_token = torch.multinomial(probs, num_samples=1)
