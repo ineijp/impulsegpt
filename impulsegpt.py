@@ -8,7 +8,7 @@ import math
 class Config:
     vocab: int = 50257
     d_model: int = 768
-    ctx_len: int = 1024
+    ctx_len: int = 512
     n_heads: int = 12
     n_layers: int = 12
     attn_drop: float = 0.1
