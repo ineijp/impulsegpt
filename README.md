@@ -1,5 +1,5 @@
 # Impulse GPT
-A personal PyTorch implementation of a tiny sized generative language model based on [Attention Is All You Need](https://arxiv.org/abs/1706.03762) with some changes. Is has a re-implementation of scaled dot product attention and rotary positional encoding, without using existing modules like `torch.nn.MHA`. For tokenizer it was trained with BPE tokenizer from [Bert-base-chinese](https://huggingface.co/google-bert/bert-base-chinese).
+A personal PyTorch implementation of a tiny sized generative language model based on [Attention Is All You Need](https://arxiv.org/abs/1706.03762) with some changes. It has a re-implementation of scaled dot product attention and rotary positional encoding, without using existing modules like `torch.nn.MHA`. For tokenizer it was trained with BPE tokenizer from [Bert-base-chinese](https://huggingface.co/google-bert/bert-base-chinese).
 
 The model is trained with [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) dataset.
 
