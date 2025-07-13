@@ -3,14 +3,16 @@ A personal PyTorch implementation of a tiny sized generative language model base
 
 The model is trained with [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) dataset.
 
-Training is still in progress.
+*Training is still in progress.*
 
 ## Installation
 *WIP*
 
 ## Usage
 *WIP*
+
 Initialize the model by first initialize a config object and pass it to impulsegpt.
+
 ```python
 import impulsegpt
 
@@ -18,10 +20,9 @@ config = impulsegpt.config()
 config.d_model = 768
 config.n_heads = 12
 config.n_layers = 12
-
 model = impulsegpt.impulsegpt(config)
 ```
 
 ## TODO
-~~A tokenizer other than a character-wise tokenizer is needed.~~
-Grouped Query Attention for better performance/memory efficiency.
+- ~~A tokenizer other than a character-wise tokenizer is needed.~~
+- Grouped Query Attention for better performance/memory efficiency.
