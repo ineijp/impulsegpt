@@ -72,8 +72,9 @@ class RoPE(nn.Module):
         return output.view(batch, seq_len, dim)  # [batch, seq_len, dim]
 
 class Layer(nn.Module):
-    def __init__(self, d_model, n_heads, ctx_len, attn_dropout, res_dropout):
+    def __init__(self, d_model, n_heads, ctx_len, attn_dropout, res_dropout, gpa:bool):
         super().__init__()
+        self.gpa=gpa
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
@@ -87,13 +88,13 @@ class Layer(nn.Module):
             nn.GELU(),
             nn.Linear(4 * d_model, d_model)
         )
-        self.attn_dropout = nn.Dropout(attn_dropout)
+        self.attn_dropout = attn_dropout
         self.res_dropout = nn.Dropout(res_dropout)
 
     def forward(self, x, i):
         # rope only applies to q and k, not v
 
-        seq_len = x.shape[1]
+        #seq_len = x.shape[1]
         q = self.wq(x)
         q = self.rope(q)
         k = self.wk(x)
@@ -111,25 +112,11 @@ class Layer(nn.Module):
         k = k.permute(0, 2, 1, 3)
         v = v.permute(0, 2, 1, 3)
         # now they are of shape (batch, n_heads, length, head_dim)
+        out = F.scaled_dot_product_attention(q, k, v, 
+                                            dropout_p=self.attn_dropout, 
+                                            is_causal=True,
+                                            enable_gqa=self.gpa)
 
-        attn = (q @ k.transpose(-2, -1)) / (self.head_dim ** 0.5)
-        # attn is of shape (batch, n_heads, length, length)
-        # apply the mask to the attention scores before softmax
-        mask = torch.tril(torch.ones((seq_len, seq_len), device=x.device)).view(1, 1, seq_len, seq_len)
-        attn = attn.masked_fill(mask == 0, float('-inf'))
-        attn = F.softmax(attn, dim=-1)
-        attn = self.attn_dropout(attn)
-        # debugging print
-        # if i == 0:
-        #     print(f"Printing the attention map of layer {i+1}")
-        #     plt.imshow(attn[0, 1].cpu().detach().numpy())
-        #     print(attn[0, 0, 1])
-
-        
-        # the operations so far can be done with einsum in a much more succinct way i suppose
-        
-        out = attn @ v
-        # print(f"Shape of out in layer {i+1} before permute: {out.shape}")
         out = out.permute(0, 2, 1, 3).reshape(x.shape[0], x.shape[1], self.d_model)
         out = self.wo(out)
         out = out + self.res_dropout(x) # residual connection bypassing the attention
@@ -151,12 +138,14 @@ class ImpulseGPT(nn.Module):
         self.n_layers = config.n_layers
         self.attn_drop = config.attn_drop
         self.res_drop = config.res_drop
+        self.enable_gpa = config.gpa
         self.embedding = nn.Embedding(self.vocab, self.d_model)
         self.layers = nn.ModuleList([Layer(self.d_model, 
                                            self.n_heads, 
                                            self.ctx_len, 
                                            self.attn_drop, 
-                                           self.res_drop) for _ in range(self.n_layers)])
+                                           self.res_drop,
+                                           gpa=self.enable_gpa) for _ in range(self.n_layers)])
         self.fc = nn.Linear(self.d_model, self.vocab)
  
     def forward(self, x):
