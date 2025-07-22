@@ -10,6 +10,7 @@ class Config:
     d_model: int = 768
     ctx_len: int = 512
     n_heads: int = 12
+    n_kv_heads:int = 4
     n_layers: int = 12
     attn_drop: float = 0.1
     res_drop: float = 0.1
@@ -143,6 +144,7 @@ class Layer(nn.Module):
 class ImpulseGPT(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
+        assert config.gpa == False, "GQA is not supported in this implementation, use SDPA version instead"
         self.batchFirst = config.batchFirst
         self.vocab = config.vocab
         self.d_model = config.d_model

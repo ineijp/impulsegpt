@@ -10,6 +10,7 @@ class Config:
     d_model: int = 768
     ctx_len: int = 512
     n_heads: int = 12
+    n_kv_heads:int = 4
     n_layers: int = 12
     attn_drop: float = 0.1
     res_drop: float = 0.1
@@ -72,16 +73,26 @@ class RoPE(nn.Module):
         return output.view(batch, seq_len, dim)  # [batch, seq_len, dim]
 
 class Layer(nn.Module):
-    def __init__(self, d_model, n_heads, ctx_len, attn_dropout, res_dropout, gpa:bool):
+    def __init__(self, d_model:int, n_heads:int, ctx_len:int, attn_dropout, res_dropout, gpa:bool, n_kv_heads:int=4):
         super().__init__()
         self.gpa=gpa
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
-        self.rope = RoPE(dim=d_model, max_seq_len=ctx_len)
+
+        if gpa:
+            assert self.n_heads % n_kv_heads == 0, "Number of model heads are not divisible by KV heads for GQA"
+            self.n_kv_heads = n_kv_heads
+            self.d_kv = self.head_dim * n_kv_heads
+        else:
+            self.n_kv_heads = self.n_heads
+            self.d_kv = d_model
+        
+        self.rope_q = RoPE(dim=d_model, max_seq_len=ctx_len)
+        self.rope_k = RoPE(dim=self.d_kv, max_seq_len=ctx_len)
         self.wq = nn.Linear(d_model, d_model, bias=False)
-        self.wk = nn.Linear(d_model, d_model, bias=False)
-        self.wv = nn.Linear(d_model, d_model, bias=False)
+        self.wk = nn.Linear(d_model, self.d_kv, bias=False)
+        self.wv = nn.Linear(d_model, self.d_kv, bias=False)
         self.wo = nn.Linear(d_model, d_model)
         self.ff = nn.Sequential(
             nn.Linear(d_model, 4 * d_model),
@@ -96,15 +107,15 @@ class Layer(nn.Module):
 
         #seq_len = x.shape[1]
         q = self.wq(x)
-        q = self.rope(q)
+        q = self.rope_q(q)
         k = self.wk(x)
-        k = self.rope(k)
+        k = self.rope_k(k)
         v = self.wv(x)
 
         # Assume the input is of shape (batch, length, d_model)
         q = q.view(q.shape[0], q.shape[1], self.n_heads, self.head_dim)
-        k = k.view(k.shape[0], k.shape[1], self.n_heads, self.head_dim)
-        v = v.view(v.shape[0], v.shape[1], self.n_heads, self.head_dim)
+        k = k.view(k.shape[0], k.shape[1], self.n_kv_heads, self.head_dim)
+        v = v.view(v.shape[0], v.shape[1], self.n_kv_heads, self.head_dim)
         # the Q, K, V tensors are now of shape (batch, length, n_heads, head_dim)
 
 
@@ -135,6 +146,7 @@ class ImpulseGPT(nn.Module):
         self.d_model = config.d_model
         self.ctx_len = config.ctx_len
         self.n_heads = config.n_heads
+        self.n_kv_heads = config.n_kv_heads
         self.n_layers = config.n_layers
         self.attn_drop = config.attn_drop
         self.res_drop = config.res_drop
@@ -145,7 +157,8 @@ class ImpulseGPT(nn.Module):
                                            self.ctx_len, 
                                            self.attn_drop, 
                                            self.res_drop,
-                                           gpa=self.enable_gpa) for _ in range(self.n_layers)])
+                                           gpa=self.enable_gpa,
+                                           n_kv_heads=self.n_kv_heads) for _ in range(self.n_layers)])
         self.fc = nn.Linear(self.d_model, self.vocab)
  
     def forward(self, x):
