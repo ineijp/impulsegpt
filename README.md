@@ -14,13 +14,13 @@ The `trainer.ipynb` is a helper notebook to train the with mixed precision and t
 
 The model is trained with [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) dataset.
 
-*Training is still in progress.*
-
-## Installation
-*WIP*
+*Training still in progress.*
 
 ## Usage
-*WIP*
+*Work in Progress*
+
+With [uv](https://github.com/astral-sh/uv) installed, run `uv sync` in repo directory to install dependencies.
+
 
 Initialize the model by first initialize a config object and pass it to impulsegpt.
 

@@ -1,7 +1,17 @@
 [project]
-name = "impulsegpt"
-version = "0.2.1"
+name = "Impulse GPT"
+version = "0.2.2"
 description = "A tiny language model"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "datasets>=4.0.0",
+    "jupyterlab>=4.4.5",
+    "matplotlib>=3.10.3",
+    "tensorboard>=2.20.0",
+    "torch>=2.7.1",
+    "torchinfo>=1.8.0",
+    "torchvision>=0.22.1",
+    "tqdm>=4.67.1",
+    "transformers>=4.53.3",
+]
