@@ -124,7 +124,7 @@ class Layer(nn.Module):
         v = v.permute(0, 2, 1, 3)
         # now they are of shape (batch, n_heads, length, head_dim)
         out = F.scaled_dot_product_attention(q, k, v, 
-                                            dropout_p=self.attn_dropout, 
+                                            dropout_p=(self.attn_dropout if self.training else 0.0), 
                                             is_causal=True,
                                             enable_gqa=self.gpa)
 

@@ -1,5 +1,5 @@
 [project]
-name = "Impulse GPT"
+name = "ImpulseGPT"
 version = "0.2.2"
 description = "A tiny language model"
 readme = "README.md"
@@ -8,6 +8,7 @@ dependencies = [
     "datasets>=4.0.0",
     "jupyterlab>=4.4.5",
     "matplotlib>=3.10.3",
+    "safetensors>=0.5.3",
     "tensorboard>=2.20.0",
     "torch>=2.7.1",
     "torchinfo>=1.8.0",
